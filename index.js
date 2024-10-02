@@ -188,10 +188,112 @@ app.get('/logout', (req, res, next) => {
   });
 });
 
-/**Getting the profile for a certain user
-app.get('/user/${user_id}', (req,es, next) => {
+/**Middleware to protect routes */
+function ensureAuthenticated(req, res, next) {
+  if (req.isAuthenticated()) {
+      return next();
+  }
+  res.status(401).json({ message: 'Unauthorized: Please log in to access this resource.' });
+}
 
-})*/
+
+/**Getting the profile for a certain user*/
+app.get('/user/:user_id', ensureAuthenticated, async (req, res, next) => {
+  const { user_id } = req.params;
+
+  try {
+    /** Convert user_id to integer and compare with logged-in user's ID*/
+    const requestedUserId = parseInt(user_id, 10);
+    if (requestedUserId !== req.user.user_id) {
+      return res.status(403).json({ message: 'Forbidden: You can only access your own user data.' });
+    }
+
+    /** Query to fetch user details, their purchased products, and products in their cart*/
+    const query = `
+      SELECT 
+        'sale' as type,
+        u.user_id, 
+        u.username, 
+        u.email,
+        s.product_id,
+        s.quantity as quantity,
+        s.sale_date,
+        s.total_price,
+        p.product_name,
+        p.price
+      FROM 
+        users u
+      LEFT JOIN 
+        sales s ON u.user_id = s.user_id
+      LEFT JOIN 
+        products p ON s.product_id = p.product_id
+      WHERE 
+        u.user_id = $1
+      UNION ALL
+      SELECT
+        'cart' as type,
+        u.user_id,
+        u.username, 
+        u.email,
+        c.product_id,
+        c.quantity as quantity,
+        NULL as sale_date,  /* Cart items do not have a sale date */
+        NULL as total_price, /* Cart items do not have a total price yet */
+        p.product_name,
+        p.price
+      FROM
+        users u
+      LEFT JOIN
+        carts c ON u.user_id = c.user_id
+      LEFT JOIN
+        products p ON c.product_id = p.product_id
+      WHERE
+        u.user_id = $1 AND c.status = 'active'  /* Assuming you want active cart items */
+      ORDER BY
+        type, sale_date DESC
+    `;
+    const { rows } = await pool.query(query, [requestedUserId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    // Structure the response
+    const user = {
+      user_id: rows[0].user_id,
+      username: rows[0].username,
+      email: rows[0].email,
+      sales: [],
+      cart: []
+    };
+
+    rows.forEach(row => {
+      if (row.type === 'sale') {
+        user.sales.push({
+          product_id: row.product_id,
+          name: row.product_name,
+          price: row.price,
+          sale_date: row.sale_date,
+          quantity: row.quantity,
+          total_price: row.total_price
+        });
+      } else if (row.type === 'cart') {
+        user.cart.push({
+          product_id: row.product_id,
+          name: row.product_name,
+          price: row.price,
+          quantity: row.quantity
+        });
+      }
+    });
+
+    res.json({ user });
+  } catch (error) {
+    console.error("Error:", error.message);
+    res.status(500).json({ message: 'Internal Server Error.' });
+  }
+});
+
 
 
 /**Listening on server */
