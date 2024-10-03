@@ -295,6 +295,55 @@ app.get('/user/:user_id', ensureAuthenticated, async (req, res, next) => {
 });
 
 
+/**Get all the products of a certain category */
+app.get('/products', (req,res) => {
+   const categoryId = req.query.category;
+
+   if(!categoryId) 
+   {
+     return res.status(400).json({error: 'Write the path like this, products?category='});
+   }
+
+   const query = 'SELECT * FROM products WHERE category_id = $1';
+   pool.query(query, [categoryId], (error, results) => {
+      if(error) 
+      {
+         return res.status(500).json({error: 'Database query failed'});
+      }
+      res.setHeader('Content-Type', 'application/json');
+      res.send(JSON.stringify(results.rows, null, 2));
+   });
+});
+
+/**Get a certain product */
+app.get('/products/:productId', (req, res) => {
+  const productId = req.params.productId;
+
+  const query = `SELECT * FROM products WHERE product_id = $1`;
+  pool.query(query, [productId], (error, results) => {
+      if (error) {
+          return res.status(500).json({ error: 'Database query failed' });
+      }
+      if (results.rows.length === 0) {
+          return res.status(404).json({ error: 'Product not found' });
+      }
+      res.setHeader('Content-Type', 'application/json');
+      res.send(JSON.stringify(results.rows[0], null, 2));
+  });
+});
+
+/* working on it 
+/**Buyer puts products into the cart 
+app.post('/cart', (req,res) => {
+  const { user_id, produ} = req.body;
+
+  const query = `INSERT INTO carts(user_id,product_id,quantity) VALUES($1, $2, $3) RETURNING product_name, quantity, total_price`;
+  if(!username || !email || !password )
+  {
+    return res.status(400).json({message: 'All fields are required'});
+  }
+});*/
+
 
 /**Listening on server */
 const server = app.listen(port, () => {
