@@ -86,7 +86,7 @@ app.post('/register', async (req,res) => {
     }
     catch(error)
     {
-        res.status(500).json({message: `Internal Server Error: ${error}`});
+      res.status(500).json({message: `Internal Server Error: ${error}`});
     }
 })
 
@@ -248,7 +248,7 @@ app.get('/user/:user_id', ensureAuthenticated, async (req, res, next) => {
       LEFT JOIN
         products p ON c.product_id = p.product_id
       WHERE
-        u.user_id = $1 AND c.status = 'active'  /* Assuming you want active cart items */
+        u.user_id = $1 AND c.status = 'active' 
       ORDER BY
         type, sale_date DESC
     `;
@@ -332,17 +332,53 @@ app.get('/products/:productId', (req, res) => {
   });
 });
 
-/* working on it 
-/**Buyer puts products into the cart 
-app.post('/cart', (req,res) => {
-  const { user_id, produ} = req.body;
 
-  const query = `INSERT INTO carts(user_id,product_id,quantity) VALUES($1, $2, $3) RETURNING product_name, quantity, total_price`;
-  if(!username || !email || !password )
+/**Buyer puts products into the cart*/ 
+app.post('/cart', async (req,res) => {
+  
+  try{
+    const { user_id, product_id,quantity} = req.body;
+
+
+    const insertProductQuery = `
+      WITH inserted AS (
+        INSERT INTO carts (user_id, product_id, quantity)
+        VALUES ($1, $2, $3)
+        RETURNING user_id, product_id, quantity
+      )
+      SELECT 
+        inserted.user_id,
+        u.username,
+        inserted.quantity,
+        p.product_name
+      FROM inserted
+      JOIN products p ON inserted.product_id = p.product_id
+      JOIN users u ON inserted.user_id = u.user_id;
+    `;
+
+    if(!user_id || !product_id || !quantity )
+    {
+      return res.status(400).json({message: 'All fields are required'});
+    }
+
+    const result = await pool.query(insertProductQuery, [user_id, product_id, quantity]);
+    
+    const newProduct = result.rows[0];
+
+    res.status(201).json({
+      message:'Product registered successfully',
+      product: {
+        user_id: newProduct.user_id,
+        username: newProduct.username,
+        quantity: newProduct.quantity
+      }
+    });
+
+  } catch(error) 
   {
-    return res.status(400).json({message: 'All fields are required'});
+    res.status(500).json({message: `Internal Server Error: ${error}`});
   }
-});*/
+});
 
 
 /**Listening on server */
