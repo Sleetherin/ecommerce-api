@@ -3,7 +3,7 @@ const express = require('express');
 const pool = require('./db');
 const bcrypt = require('bcrypt');
 
-/**import passport for logging in */
+/** Import passport for logging in */
 const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
 const session = require('express-session');
@@ -11,107 +11,108 @@ const session = require('express-session');
 const app = express();
 const port = process.env.PORT || 3000;
 
+/** Validate Essential Environment Variables */
+const requiredEnv = ['SESSION_SECRET', 'NODE_ENV'];
+const missingEnv = requiredEnv.filter(env => !process.env[env]);
 
+if (missingEnv.length > 0) {
+  console.error(`Missing required environment variables: ${missingEnv.join(', ')}`);
+  process.exit(1);
+}
 
-/**Middleware to parse JSON bodies */
-app.use(express.json());
+/** Middleware to parse JSON bodies */
+app.use(express.json()); // For parsing application/json
+app.use(express.urlencoded({ extended: true })); // For parsing application/x-www-form-urlencoded
 
-app.get('/', (req,res) => {
-    res.send('Testing the fourth project');
-});
-
-/**Getting all the users */
-app.get('/users', async (req,res) => {
-    try{
-        const result = await pool.query('SELECT username FROM users');
-        res.json(result.rows);
-    }
-    catch(err)
-    {
-        console.error(err);
-        res.status(500).send(`${err}`);
-    }
-});
-
-
-
-/**Get new users registered */
-app.post('/register', async (req,res) => {
-    try{
-       /** registering new user - they must provide username,email,password */
-       const {username, email, password} = req.body;
-
-       if(!username || !email || !password )
-       {
-          return res.status(400).json({message: 'All fields are required'});
-       }
-
-       /**We check if the username or email already exists*/
-       const existingUserQuery = 'SELECT 1 FROM users WHERE username = $1 OR email = $2';
-       const existingUserResult = await pool.query(existingUserQuery, [username, email]);
-       if(existingUserResult.rows.length > 0)
-       {
-          return res.status(400).json({message: 'Either username or email already exists'});
-       }
-
-       /** We check if the email is valid*/
-       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-       if (!emailRegex.test(email)) {
-        return res.status(400).json({ message: 'Invalid email format' });
-       }
-
-
-       /**Hash the password */
-       const saltRounds = 9;
-       const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-       /**Insert the new user into the database */
-       const insertUserQuery = `
-       INSERT INTO users(username,password,email)
-       VALUES ($1, $2, $3) RETURNING user_id,username,email
-       `;
-       const result = await pool.query(insertUserQuery, [username,hashedPassword,email]);
-
-
-       /**Show the data excluding the password*/
-       const newUser = result.rows[0];
-       res.status(201).json({
-          message:'User registered successfully',
-          user: {
-            user_id: newUser.user_id,
-            username: newUser.username,
-            email:newUser.email,
-          }
-       })
-    }
-    catch(error)
-    {
-      res.status(500).json({message: `Internal Server Error: ${error}`});
-    }
-})
-
-/**Help old users log in*/
-
-/**Express session middleware */
+/** Express session middleware */
 app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production', // Simplified expression
     httpOnly: true,
-    maxAge: 1000 * 60 * 60 * 24 //this would be the whole day
+    maxAge: 1000 * 60 * 60 * 24 // One day
   }
-}))
+}));
 
-/**Initialize passport */
+/** Initialize passport */
 app.use(passport.initialize());
-app.use(passport.session()); 
+app.use(passport.session());
 
-/**Use the passport */
+app.get('/', (req, res) => {
+  res.send('Testing the fourth project');
+});
+
+/** Getting all the users */
+app.get('/users', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT username FROM users');
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Internal Server Error' });
+  }
+});
+
+/** Registering new users */
+app.post('/register', async (req, res) => {
+  try {
+    /** Registering new user - they must provide username, email, password */
+    const { username, email, password } = req.body;
+
+    if (!username || !email || !password) {
+      return res.status(400).json({ success: false, message: 'All fields are required' });
+    }
+
+    /** Check if the username or email already exists */
+    const existingUserQuery = 'SELECT 1 FROM users WHERE username = $1 OR email = $2';
+    const existingUserResult = await pool.query(existingUserQuery, [username, email]);
+    if (existingUserResult.rows.length > 0) {
+      return res.status(400).json({ success: false, message: 'Either username or email already exists' });
+    }
+
+    /** Check if the email is valid */
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ success: false, message: 'Invalid email format' });
+    }
+
+    /** Hash the password */
+    const saltRounds = 9;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    /** Insert the new user into the database */
+    const insertUserQuery = `
+      INSERT INTO users(username, password, email)
+      VALUES ($1, $2, $3) RETURNING user_id, username, email
+    `;
+    const result = await pool.query(insertUserQuery, [username, hashedPassword, email]);
+
+    /** Show the data excluding the password */
+    const newUser = result.rows[0];
+    res.status(201).json({
+      success: true,
+      message: 'User registered successfully',
+      data: {
+        user_id: newUser.user_id,
+        username: newUser.username,
+        email: newUser.email,
+      }
+    });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ success: false, message: 'Internal Server Error' });
+  }
+});
+
+/** Configure Passport Local Strategy */
 passport.use(new LocalStrategy(
   async (username, password, done) => {
-    try{
+    try {
       const query = 'SELECT * FROM users WHERE username = $1';
       const { rows } = await pool.query(query, [username]);
       if (rows.length === 0) {
@@ -120,95 +121,114 @@ passport.use(new LocalStrategy(
 
       const user = rows[0];
 
-      /**Is it a match? */
+      // Check if the password matches
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) {
         return done(null, false, { message: 'Incorrect password.' });
       }
 
-      /**If the authentication is successful */
+      // Remove password from user object before proceeding
+      delete user.password;
+
+      // Successful authentication
       return done(null, user);
 
-    } catch(err)
-    {
+    } catch (err) {
       return done(err);
     }
   }
-))
+));
 
-/**Serialize and deserialize users */
+/** Serialize and deserialize users */
 passport.serializeUser((user, done) => {
   done(null, user.user_id);
 });
 
 passport.deserializeUser(async (id, done) => {
   try {
-      const query = 'SELECT user_id, username, email FROM users WHERE user_id = $1';
-      const { rows } = await pool.query(query, [id]);
+    const query = 'SELECT user_id, username, email FROM users WHERE user_id = $1';
+    const { rows } = await pool.query(query, [id]);
 
-      if (rows.length === 0) {
-          return done(new Error('User not found'), null);
-      }
+    if (rows.length === 0) {
+      return done(new Error('User not found'), null);
+    }
 
-      const user = rows[0];
-      done(null, user);
+    const user = rows[0];
+    done(null, user);
   } catch (err) {
-      done(err, null);
+    done(err, null);
   }
 });
 
-/**Logging users */
-app.post('/login', (req, res, next) => {
-  passport.authenticate('local', (err, user, info) => {
-      if (err) {
-          console.error(err);
-          return next(err);
-      }
-      if (!user) {
-          /**if authentication fails */
-          return res.status(400).json({ message: info.message || 'Login failed' });
-      }
-      /**Logging */
-      req.logIn(user, (err) => {
-          if (err) {
-              console.error(err);
-              return next(err);
-          }
-          /**Successful login */
-          return res.json({ message: 'Login successful', user: { user_id: user.user_id, username: user.username, email: user.email } });
+/** Logging in users */
+app.post('/login', async (req, res, next) => {
+  passport.authenticate('local', async (err, user, info) => {
+    if (err) {
+      console.error(err);
+      return next(err);
+    }
+    if (!user) {
+      return res.status(400).json({ success: false, message: info.message || 'Login failed' });
+    }
+    try {
+      // Promisify req.logIn
+      await new Promise((resolve, reject) => {
+        req.logIn(user, (err) => {
+          if (err) return reject(err);
+          resolve();
+        });
       });
+      // Send only necessary user information
+      return res.json({
+        success: true,
+        message: 'Login successful',
+        data: {
+          user_id: user.user_id,
+          username: user.username,
+          email: user.email
+        }
+      });
+    } catch (err) {
+      console.error(err);
+      return next(err);
+    }
   })(req, res, next);
 });
 
 /** Logout User */
 app.get('/logout', (req, res, next) => {
   req.logout(function(err) {
-      if (err) { return next(err); }
-      res.json({ message: 'Logged out successfully' });
+    if (err) { 
+      console.error(err);
+      return next(err); 
+    }
+    res.json({ success: true, message: 'Logged out successfully' });
   });
 });
 
-/**Middleware to protect routes */
+/** Middleware to protect routes */
 function ensureAuthenticated(req, res, next) {
-  if (req.isAuthenticated()) {
-      return next();
+  if (req.isAuthenticated && req.isAuthenticated()) {
+    return next();
   }
-  res.status(401).json({ message: 'Unauthorized: Please log in to access this resource.' });
+  res.status(401).json({ success: false, message: 'Unauthorized: Please log in to access this resource.' });
 }
 
-
-/**Getting the profile for a certain user*/
+/** Getting the profile for a certain user */
 app.get('/user/:user_id', ensureAuthenticated, async (req, res, next) => {
   const { user_id } = req.params;
 
   try {
-    /** Convert user_id to integer and compare with logged-in user's ID*/
+    /** Convert user_id to integer and compare with logged-in user's ID */
     const requestedUserId = parseInt(user_id, 10);
+    if (isNaN(requestedUserId)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID.' });
+    }
     if (requestedUserId !== req.user.user_id) {
-      return res.status(403).json({ message: 'Forbidden: You can only access your own user data.' });
+      return res.status(403).json({ success: false, message: 'Forbidden: You can only access your own user data.' });
     }
 
-    /** Query to fetch user details, their purchased products, and products in their cart*/
+    /** Corrected SQL Query: Retain carts instead of deleting them */
     const query = `
       SELECT 
         'sale' as type,
@@ -235,27 +255,29 @@ app.get('/user/:user_id', ensureAuthenticated, async (req, res, next) => {
         u.user_id,
         u.username, 
         u.email,
-        c.product_id,
-        c.quantity as quantity,
-        NULL as sale_date,  /* Cart items do not have a sale date */
-        NULL as total_price, /* Cart items do not have a total price yet */
+        ci.product_id,
+        ci.quantity as quantity,
+        NULL as sale_date,
+        ci.total_price,
         p.product_name,
         p.price
       FROM
         users u
-      LEFT JOIN
+      JOIN
         carts c ON u.user_id = c.user_id
-      LEFT JOIN
-        products p ON c.product_id = p.product_id
+      JOIN
+        cart_items ci ON c.cart_id = ci.cart_id
+      JOIN
+        products p ON ci.product_id = p.product_id
       WHERE
-        u.user_id = $1 AND c.status = 'active' 
+        u.user_id = $1 AND c.status = 'active'
       ORDER BY
         type, sale_date DESC
     `;
     const { rows } = await pool.query(query, [requestedUserId]);
 
     if (rows.length === 0) {
-      return res.status(404).json({ message: 'User not found.' });
+      return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
     // Structure the response
@@ -282,116 +304,485 @@ app.get('/user/:user_id', ensureAuthenticated, async (req, res, next) => {
           product_id: row.product_id,
           name: row.product_name,
           price: row.price,
-          quantity: row.quantity
+          quantity: row.quantity,
+          total_price: row.total_price
         });
       }
     });
 
-    res.json({ user });
+    res.json({ success: true, data: { user } });
   } catch (error) {
-    console.error("Error:", error.message);
-    res.status(500).json({ message: 'Internal Server Error.' });
+    console.error("Error:", error);
+    res.status(500).json({ success: false, message: 'Internal Server Error' });
   }
 });
 
+/** Get all the products of a certain category */
+app.get('/products', async (req, res) => { // Refactored to use async/await
+  const categoryId = req.query.category;
 
-/**Get all the products of a certain category */
-app.get('/products', (req,res) => {
-   const categoryId = req.query.category;
+  if (!categoryId) {
+    return res.status(400).json({ success: false, error: 'Category ID is required. Example: /products?category=1' });
+  }
 
-   if(!categoryId) 
-   {
-     return res.status(400).json({error: 'Write the path like this, products?category='});
-   }
-
-   const query = 'SELECT * FROM products WHERE category_id = $1';
-   pool.query(query, [categoryId], (error, results) => {
-      if(error) 
-      {
-         return res.status(500).json({error: 'Database query failed'});
-      }
-      res.setHeader('Content-Type', 'application/json');
-      res.send(JSON.stringify(results.rows, null, 2));
-   });
+  try {
+    const query = 'SELECT * FROM products WHERE category_id = $1';
+    const results = await pool.query(query, [categoryId]);
+    res.json({ success: true, data: results.rows });
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
 });
 
-/**Get a certain product */
-app.get('/products/:productId', (req, res) => {
+/** Get a certain product */
+app.get('/products/:productId', async (req, res) => { // Refactored to use async/await
   const productId = req.params.productId;
 
-  const query = `SELECT * FROM products WHERE product_id = $1`;
-  pool.query(query, [productId], (error, results) => {
-      if (error) {
-          return res.status(500).json({ error: 'Database query failed' });
-      }
-      if (results.rows.length === 0) {
-          return res.status(404).json({ error: 'Product not found' });
-      }
-      res.setHeader('Content-Type', 'application/json');
-      res.send(JSON.stringify(results.rows[0], null, 2));
-  });
-});
+  try {
+    const query = 'SELECT * FROM products WHERE product_id = $1';
+    const results = await pool.query(query, [productId]);
 
-
-/**Buyer puts products into the cart*/ 
-app.post('/cart', async (req,res) => {
-  
-  try{
-    const { user_id, product_id,quantity} = req.body;
-
-
-    const insertProductQuery = `
-      WITH inserted AS (
-        INSERT INTO carts (user_id, product_id, quantity)
-        VALUES ($1, $2, $3)
-        RETURNING user_id, product_id, quantity
-      )
-      SELECT 
-        inserted.user_id,
-        u.username,
-        inserted.quantity,
-        p.product_name
-      FROM inserted
-      JOIN products p ON inserted.product_id = p.product_id
-      JOIN users u ON inserted.user_id = u.user_id;
-    `;
-
-    if(!user_id || !product_id || !quantity )
-    {
-      return res.status(400).json({message: 'All fields are required'});
+    if (results.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Product not found' });
     }
 
-    const result = await pool.query(insertProductQuery, [user_id, product_id, quantity]);
-    
-    const newProduct = result.rows[0];
+    res.json({ success: true, data: results.rows[0] });
+  } catch (error) {
+    console.error('Error fetching product:', error);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});
 
+/** Buyer adds products to the cart */
+app.post('/cart', ensureAuthenticated, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { product_id, quantity } = req.body;
+    const user_id = req.user.user_id;
+
+    // Validate Input
+    if (!product_id || quantity === undefined) {
+      return res.status(400).json({ success: false, message: 'Product ID and quantity are required.' });
+    }
+
+    const parsedQuantity = parseInt(quantity, 10);
+    if (isNaN(parsedQuantity) || parsedQuantity < 1) {
+      return res.status(400).json({ success: false, message: 'Quantity must be a positive integer.' });
+    }
+
+    // Start Transaction
+    await client.query('BEGIN');
+
+    // Check for Existing Active Cart
+    const checkCartQuery = `
+      SELECT cart_id
+      FROM carts
+      WHERE user_id = $1 AND status = 'active'
+      LIMIT 1
+    `;
+    const cartResult = await client.query(checkCartQuery, [user_id]);
+
+    let cart_id;
+    if (cartResult.rows.length > 0) {
+      cart_id = cartResult.rows[0].cart_id;
+    } else {
+      // Create a new cart
+      const createCartQuery = `
+        INSERT INTO carts (user_id)
+        VALUES ($1)
+        RETURNING cart_id
+      `;
+      const newCartResult = await client.query(createCartQuery, [user_id]);
+      cart_id = newCartResult.rows[0].cart_id;
+    }
+
+    // Calculate total_price
+    const productPriceQuery = 'SELECT price FROM products WHERE product_id = $1';
+    const productPriceResult = await client.query(productPriceQuery, [product_id]);
+    if (productPriceResult.rows.length === 0) {
+      throw new Error('Product not found.');
+    }
+    const productPrice = productPriceResult.rows[0].price;
+    const total_price = productPrice * parsedQuantity;
+
+    // Insert Cart Item with total_price
+    const insertCartItemQuery = `
+      INSERT INTO cart_items (product_id, quantity, cart_id, total_price)
+      VALUES ($1, $2, $3, $4)
+      RETURNING cart_item_id, product_id, quantity, total_price
+    `;
+    const cartItemResult = await client.query(insertCartItemQuery, [product_id, parsedQuantity, cart_id, total_price]);
+    const newCartItem = cartItemResult.rows[0];
+
+    // Commit Transaction
+    await client.query('COMMIT');
+
+    // Fetch Detailed Information (Optional)
+    const fetchDetailsQuery = `
+      SELECT 
+        ci.cart_item_id,
+        c.cart_id,
+        u.username,
+        p.product_name,
+        ci.quantity,
+        ci.total_price
+      FROM cart_items ci
+      JOIN carts c ON ci.cart_id = c.cart_id
+      JOIN users u ON c.user_id = u.user_id
+      JOIN products p ON ci.product_id = p.product_id
+      WHERE ci.cart_item_id = $1
+    `;
+    const detailsResult = await client.query(fetchDetailsQuery, [newCartItem.cart_item_id]);
+    const detailedCartItem = detailsResult.rows[0];
+
+    // Send Response
     res.status(201).json({
-      message:'Product registered successfully',
-      product: {
-        user_id: newProduct.user_id,
-        username: newProduct.username,
-        quantity: newProduct.quantity
+      success: true,
+      message: 'Product added to cart successfully',
+      data: {
+        cart_item: {
+          cart_item_id: detailedCartItem.cart_item_id,
+          cart_id: detailedCartItem.cart_id,
+          username: detailedCartItem.username,
+          product_name: detailedCartItem.product_name,
+          quantity: detailedCartItem.quantity,
+          total_price: detailedCartItem.total_price
+        }
       }
     });
 
-  } catch(error) 
-  {
-    res.status(500).json({message: `Internal Server Error: ${error}`});
+  } catch (error) {
+    // Rollback Transaction in Case of Error
+    await client.query('ROLLBACK');
+    console.error("Error:", error);
+    res.status(500).json({ success: false, message: 'Internal Server Error' });
+  } finally {
+    client.release();
+  }
+});
+
+/** Add product to a specific cart */
+app.post('/cart/:cart_id', ensureAuthenticated, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { product_id, quantity } = req.body;
+    const user_id = req.user.user_id;
+    const { cart_id } = req.params;  // Extract cart_id from URL parameters
+
+    // Validate Input
+    if (!product_id || quantity === undefined) {
+      return res.status(400).json({ success: false, message: 'Product ID and quantity are required.' });
+    }
+
+    const parsedQuantity = parseInt(quantity, 10);
+    if (isNaN(parsedQuantity) || parsedQuantity < 1) {
+      return res.status(400).json({ success: false, message: 'Quantity must be a positive integer.' });
+    }
+
+    // Start Transaction
+    await client.query('BEGIN');
+
+    // Check if the cart belongs to the user
+    const checkCartQuery = `
+      SELECT cart_id
+      FROM carts
+      WHERE cart_id = $1 AND user_id = $2 AND status = 'active'
+      LIMIT 1
+    `;
+    const cartResult = await client.query(checkCartQuery, [cart_id, user_id]);
+
+    if (cartResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Active cart not found for the user.' });
+    }
+
+    // Calculate total_price
+    const productPriceQuery = 'SELECT price FROM products WHERE product_id = $1';
+    const productPriceResult = await client.query(productPriceQuery, [product_id]);
+    if (productPriceResult.rows.length === 0) {
+      throw new Error('Product not found.');
+    }
+    const productPrice = productPriceResult.rows[0].price;
+    const total_price = productPrice * parsedQuantity;
+
+    // Insert Cart Item with total_price
+    const insertCartItemQuery = `
+      INSERT INTO cart_items (product_id, quantity, cart_id, total_price)
+      VALUES ($1, $2, $3, $4)
+      RETURNING cart_item_id, product_id, quantity, total_price
+    `;
+    const cartItemResult = await client.query(insertCartItemQuery, [product_id, parsedQuantity, cart_id, total_price]);
+    const newCartItem = cartItemResult.rows[0];
+
+    // Commit Transaction
+    await client.query('COMMIT');
+
+    // Fetch Detailed Information (Optional)
+    const fetchDetailsQuery = `
+      SELECT 
+        ci.cart_item_id,
+        c.cart_id,
+        u.username,
+        p.product_name,
+        ci.quantity,
+        ci.total_price
+      FROM cart_items ci
+      JOIN carts c ON ci.cart_id = c.cart_id
+      JOIN users u ON c.user_id = u.user_id
+      JOIN products p ON ci.product_id = p.product_id
+      WHERE ci.cart_item_id = $1
+    `;
+    const detailsResult = await client.query(fetchDetailsQuery, [newCartItem.cart_item_id]);
+    const detailedCartItem = detailsResult.rows[0];
+
+    // Send Response
+    res.status(201).json({
+      success: true,
+      message: 'Product added to cart successfully',
+      data: {
+        cart_item: {
+          cart_item_id: detailedCartItem.cart_item_id,
+          cart_id: detailedCartItem.cart_id,
+          username: detailedCartItem.username,
+          product_name: detailedCartItem.product_name,
+          quantity: detailedCartItem.quantity,
+          total_price: detailedCartItem.total_price
+        }
+      }
+    });
+
+  } catch (error) {
+    // Rollback Transaction in Case of Error
+    await client.query('ROLLBACK');
+    console.error("Error:", error);
+    res.status(500).json({ success: false, message: 'Internal Server Error' });
+  } finally {
+    client.release();
+  }
+});
+
+/** Get cart details with ownership verification */
+app.get('/cart/:cart_id', ensureAuthenticated, async (req, res) => {
+  const client = await pool.connect();
+  const { cart_id } = req.params; // Extract cart_id from the URL parameter
+
+  try {
+    /** Verify that the cart belongs to the authenticated user */
+    const verifyCartQuery = `
+      SELECT ci.cart_item_id, c.cart_id, u.username, p.product_name, ci.quantity, ci.total_price
+      FROM cart_items ci
+      JOIN carts c ON ci.cart_id = c.cart_id
+      JOIN users u ON c.user_id = u.user_id
+      JOIN products p ON ci.product_id = p.product_id
+      WHERE c.cart_id = $1 AND c.user_id = $2
+    `;
+    const cartResult = await client.query(verifyCartQuery, [cart_id, req.user.user_id]);
+
+    if (cartResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Cart not found or access denied.' });
+    }
+
+    res.status(200).json({ success: true, data: { cart_items: cartResult.rows } });
+  } catch (error) {
+    console.error('Error fetching cart:', error);
+    res.status(500).json({ success: false, message: 'Internal Server Error' });
+  } finally {
+    client.release();
+  }
+});
+
+/** Checkout a cart */
+app.post('/cart/:cart_id/checkout', ensureAuthenticated, async (req, res) => {
+  const client = await pool.connect();
+  const { cart_id } = req.params; // Extract cart_id from URL parameters
+  const user_id = req.user.user_id;
+
+  try {
+    // Start Transaction
+    await client.query('BEGIN');
+
+    // 1. Validate the Cart
+    const cartQuery = `
+      SELECT c.cart_id, c.user_id, c.status, ci.cart_item_id, ci.product_id, ci.quantity, ci.total_price
+      FROM carts c
+      JOIN cart_items ci ON c.cart_id = ci.cart_id
+      WHERE c.cart_id = $1 AND c.status = 'active' FOR UPDATE
+    `;
+    const cartResult = await client.query(cartQuery, [cart_id]);
+
+    if (cartResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Active cart not found.' });
+    }
+
+    const cart = {
+      cart_id: cartResult.rows[0].cart_id,
+      user_id: cartResult.rows[0].user_id,
+      status: cartResult.rows[0].status,
+      items: cartResult.rows.map(row => ({
+        cart_item_id: row.cart_item_id,
+        product_id: row.product_id,
+        quantity: row.quantity,
+        total_price: row.total_price,
+      })),
+    };
+
+    // Check if the cart belongs to the authenticated user
+    if (cart.user_id !== user_id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ success: false, message: 'Unauthorized access to this cart.' });
+    }
+
+    // 2. Calculate Total Amount
+    const totalAmount = cart.items.reduce((sum, item) => sum + parseFloat(item.total_price), 0);
+
+    // 3. Create a Sale Record
+    const saleInsertQuery = `
+      INSERT INTO sales (user_id, cart_id, total_price, sale_date)
+      VALUES ($1, $2, $3, NOW())
+      RETURNING sale_id, sale_date
+    `;
+    const saleResult = await client.query(saleInsertQuery, [user_id, cart.cart_id, totalAmount]);
+
+    const sale = saleResult.rows[0];
+
+    // 4. Update Cart Status to 'checked_out'
+    const updateCartStatusQuery = `
+      UPDATE carts
+      SET status = 'checked_out'
+      WHERE cart_id = $1
+    `;
+    await client.query(updateCartStatusQuery, [cart.cart_id]);
+
+    // Note: Removed deletion of cart items and cart to maintain referential integrity
+
+    // Commit Transaction
+    await client.query('COMMIT');
+
+    // 5. Respond to the Client
+    return res.status(200).json({
+      success: true,
+      message: 'Checkout successful.',
+      data: {
+        sale: {
+          sale_id: sale.sale_id,
+          sale_date: sale.sale_date,
+          total_amount: totalAmount,
+        },
+      },
+    });
+  } catch (error) {
+    // Rollback Transaction in Case of Error
+    await client.query('ROLLBACK');
+    console.error('Checkout Error:', error);
+    return res.status(500).json({ success: false, message: 'An error occurred during checkout.' });
   }
 });
 
 
-/**Listening on server */
-const server = app.listen(port, () => {
-    console.log(`Listening to port ${port} for the project number 4`);
+/** Get Sales for a Specific User */
+app.get('/sales/:user_id', ensureAuthenticated, async (req, res) => {
+  const client = await pool.connect();
+  const { user_id } = req.params;
+
+  try {
+    // Convert and validate user_id
+    const requestedUserId = parseInt(user_id, 10);
+    if (isNaN(requestedUserId)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID.' });
+    }
+
+    // Authorization: User can only access their own sales
+    if (requestedUserId !== req.user.user_id) {
+      return res.status(403).json({ success: false, message: 'Forbidden: You can only access your own sales data.' });
+    }
+
+    /** Fetch Sales */
+    const salesQuery = `
+      SELECT 
+        s.sale_id,
+        s.sale_date,
+        s.total_price,
+        s.cart_id
+      FROM 
+        sales s
+      WHERE 
+        s.user_id = $1
+      ORDER BY 
+        s.sale_date DESC, s.sale_id DESC
+    `;
+    const salesResult = await client.query(salesQuery, [requestedUserId]);
+
+    if (salesResult.rows.length === 0) {
+      return res.status(200).json({ success: true, message: 'No sales found for this user.', data: { sales: [] } });
+    }
+
+    /** Fetch Sale Items for Each Sale */
+    const sales = await Promise.all(salesResult.rows.map(async (sale) => {
+      const saleItemsQuery = `
+        SELECT 
+          ci.cart_item_id,
+          p.product_name,
+          ci.quantity,
+          ci.total_price
+        FROM 
+          cart_items ci
+        JOIN 
+          products p ON ci.product_id = p.product_id
+        WHERE 
+          ci.cart_id = $1
+      `;
+      const itemsResult = await client.query(saleItemsQuery, [sale.cart_id]);
+
+      return {
+        sale_id: sale.sale_id,
+        sale_date: sale.sale_date,
+        total_price: sale.total_price,
+        items: itemsResult.rows.map(item => ({
+          cart_item_id: item.cart_item_id,
+          product_name: item.product_name,
+          quantity: item.quantity,
+          total_price: item.total_price
+        }))
+      };
+    }));
+
+    /** Send the Response */
+    res.status(200).json({
+      success: true,
+      data: {
+        sales
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching sales:', error);
+    res.status(500).json({ success: false, message: 'Internal Server Error' });
+  } finally {
+    client.release();
+  }
 });
 
-process.on('SIGTERM', () => {
-    console.log('SIGTERM signal received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        pool.end(() => {
-            console.log('Pool has ended');
-        })
-    })
-})
+
+/** Listening on server */
+const server = app.listen(port, () => {
+  console.log(`Listening to port ${port} for the project number 4`);
+});
+
+/** Graceful Shutdown Handling for Multiple Signals */
+const shutdown = () => {
+  console.log('Shutdown signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    pool.end(() => {
+      console.log('Database pool has ended');
+      process.exit(0);
+    });
+  });
+};
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
